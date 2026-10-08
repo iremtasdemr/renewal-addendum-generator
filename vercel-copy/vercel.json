@@ -15,7 +15,7 @@
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "/api/gateway?resource=$1"
+      "dest": "/api/gateway.js?resource=$1"
     }
   ]
 }
