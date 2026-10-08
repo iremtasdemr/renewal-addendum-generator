@@ -1,7 +1,21 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
-  "framework": null,
-  "buildCommand": "",
-  "outputDirectory": "public"
+  "builds": [
+    {
+      "src": "api/gateway.js",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "site/**"
+        ]
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "/api/gateway?resource=$1"
+    }
+  ]
 }
