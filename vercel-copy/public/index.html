@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <title>Jotform Renewal Addendum Generator</title>
+    <link rel="stylesheet" href="styles.css?v=20261007-lighter-lilac" />
+  </head>
+  <body>
+    <div class="preview-toolbar no-print">
+      <div><span class="status-dot"></span><span id="preview-state">Live editable preview</span></div>
+      <div class="toolbar-actions">
+        <button id="reset-document" class="secondary-button" type="button" hidden>Reset PDF text</button>
+        <button id="feedback-button" class="secondary-button" type="button">Give feedback</button>
+        <button id="reset-form" class="secondary-button" type="button">Reset form</button>
+        <button id="download-pdf" class="primary-button" type="button">Download PDF</button>
+      </div>
+    </div>
+    <main class="app-shell">
+      <aside class="editor-panel no-print">
+        <header class="editor-header">
+          <div class="brand-lockup"><img src="assets/jotform-mark-hd.png" alt="" aria-hidden="true" /><span>Jotform</span></div>
+          <div>
+            <h1>Renewal Addendum Generator</h1>
+            <p class="header-copy">Renew the base package, select users and features, and apply discounts before printing your addendum.</p>
+          </div>
+        </header>
+
+        <form id="addendum-form" novalidate>
+          <section class="form-section">
+            <div class="section-heading"><span>01</span><div><h2>Agreement details</h2><p>Set the agreement details, renewal end date, currency, and renewal term.</p></div></div>
+            <div class="field-grid two-columns">
+              <label class="field-label">Addendum number<input id="addendum-number" type="text" value="1" autocomplete="off" /></label>
+              <label class="field-label">Agreement type<select id="agreement-type"><option>Order Form</option><option>Master Subscription Agreement</option><option>Software Service Agreement</option><option>Master Service Agreement</option></select></label>
+              <div class="field-label wide" id="agreement-date-field">
+                <label for="agreement-date">Agreement date</label>
+                <div class="date-input-wrap">
+                  <input id="agreement-date" type="text" required placeholder="Select or type any date" autocomplete="off" aria-controls="agreement-date-calendar" aria-expanded="false" />
+                  <button id="agreement-date-picker-button" class="date-picker-button" type="button" aria-label="Open agreement date calendar" aria-controls="agreement-date-calendar" aria-expanded="false" title="Open calendar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2v3M17 2v3M3.5 9h17M5.5 4h13a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" /></svg></button>
+                </div>
+                <div id="agreement-date-calendar" class="date-calendar" role="group" aria-label="Agreement date calendar" hidden>
+                  <div class="date-calendar-header">
+                    <button id="calendar-previous-month" class="calendar-nav" type="button" aria-label="Previous month">‹</button>
+                    <select id="calendar-month" aria-label="Calendar month"></select>
+                    <input id="calendar-year" type="number" step="1" inputmode="numeric" aria-label="Calendar year" />
+                    <button id="calendar-next-month" class="calendar-nav" type="button" aria-label="Next month">›</button>
+                  </div>
+                  <span id="calendar-month-label" class="visually-hidden" aria-live="polite"></span>
+                  <div class="date-calendar-weekdays" aria-hidden="true"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>
+                  <div id="calendar-days" class="date-calendar-days" role="group" aria-labelledby="calendar-month-label"></div>
+                  <div class="date-calendar-footer"><button id="calendar-today" type="button">Today</button><button id="calendar-close" type="button">Close</button></div>
+                </div>
+              </div>
+              <label class="field-label">Currency<select id="currency"><option value="USD">USD - US Dollar</option><option value="CAD">CAD - Canadian Dollar</option><option value="GBP">GBP - British Pound</option><option value="EUR">EUR - Euro</option><option value="AUD">AUD - Australian Dollar</option></select></label>
+              <label class="field-label">Renewal term (months)<input id="months-remaining" type="number" min="1" max="60" step="1" value="12" inputmode="numeric" /></label>
+              <div class="field-label wide" id="renewal-end-date-field">
+                <label for="renewal-end-date">New term end date</label>
+                <div class="date-input-wrap">
+                  <input id="renewal-end-date" type="text" required placeholder="Select or type any date" autocomplete="off" aria-controls="renewal-end-date-calendar" aria-expanded="false" />
+                  <button id="renewal-end-date-picker-button" class="date-picker-button" type="button" aria-label="Open renewal end date calendar" aria-controls="renewal-end-date-calendar" aria-expanded="false" title="Open calendar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2v3M17 2v3M3.5 9h17M5.5 4h13a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" /></svg></button>
+                </div>
+                <div id="renewal-end-date-calendar" class="date-calendar" role="group" aria-label="Renewal end date calendar" hidden>
+                  <div class="date-calendar-header">
+                    <button id="renewal-calendar-previous-month" class="calendar-nav" type="button" aria-label="Previous month">‹</button>
+                    <select id="renewal-calendar-month" aria-label="Calendar month"></select>
+                    <input id="renewal-calendar-year" type="number" step="1" inputmode="numeric" aria-label="Calendar year" />
+                    <button id="renewal-calendar-next-month" class="calendar-nav" type="button" aria-label="Next month">›</button>
+                  </div>
+                  <span id="renewal-calendar-month-label" class="visually-hidden" aria-live="polite"></span>
+                  <div class="date-calendar-weekdays" aria-hidden="true"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>
+                  <div id="renewal-calendar-days" class="date-calendar-days" role="group" aria-labelledby="renewal-calendar-month-label"></div>
+                  <div class="date-calendar-footer"><button id="renewal-calendar-today" type="button">Today</button><button id="renewal-calendar-close" type="button">Close</button></div>
+                </div>
+              </div>
+              <label class="field-label user-count-field">Current permitted users<input id="previous-users" type="number" min="0" step="1" value="5" required /></label>
+              <label class="field-label user-count-field">Renewed permitted users<input id="renewed-users" type="number" min="0" step="1" value="5" required /><small>Edit either count to update additional user cards.</small></label>
+            </div>
+          </section>
+
+          <section class="form-section">
+            <div class="section-heading with-action"><span>02</span><div><h2>Products &amp; Features</h2><p>Select each product and check “Added with this addendum” for new add-ons or additional base packages.</p></div><button id="add-cost-line" class="clause-toggle-button add-feature-button add-cost-line-button" type="button">+ Add feature</button></div>
+            <div id="cost-line-list" class="cost-line-list"></div>
+            <button id="add-cost-line-bottom" class="clause-toggle-button add-feature-button add-feature-button-bottom add-cost-line-button" type="button">+ Add feature</button>
+          </section>
+
+          <section class="form-section">
+            <div class="section-heading"><span>03</span><div><h2>Discounts</h2><p>Add discounts here; each discount is automatically applied only to its eligible products.</p></div></div>
+            <button id="add-discount-line" class="clause-toggle-button add-discount-button" type="button">+ Add discount</button>
+            <div id="discount-list" class="discount-section-list"></div>
+            <div class="amount-override-card" id="amount-card">
+              <div class="override-heading"><div><span>Calculated amount</span><strong id="calculated-total">$0.00</strong></div><button id="reset-total-override" class="text-button" type="button" hidden>Use calculated amount</button></div>
+              <label class="field-label">Amount used in addendum<span class="money-input"><span>$</span><input id="total-used" type="number" step="0.01" value="0.00" inputmode="decimal" /></span></label>
+              <p id="override-status" class="helper-text">Updates automatically until a salesperson changes it.</p>
+            </div>
+            <div class="optional-clause-card">
+              <button id="toggle-overage-clause" class="clause-toggle-button" type="button" aria-pressed="false">Include Auto-Expansion Clause</button>
+              <p>Customer agrees that, if during the Term, Customer exceeds its number of Permitted Users, Jotform shall invoice Customer for the additional users, and Customer agrees to pay the invoice, without the need for an addendum for the same.</p>
+            </div>
+          </section>
+
+          <section class="form-section">
+            <div class="section-heading"><span>04</span><div><h2>Signatures</h2><p>Choose the contracting entity, customer, and signer details for the signature block.</p></div></div>
+            <div class="field-grid two-columns">
+              <label class="field-label wide">Jotform entity<select id="jotform-entity"><option>Jotform Inc.</option><option>Jotform Canada, Inc.</option><option>Jotform Ltd.</option><option>Jotform Pty Ltd.</option></select></label>
+              <label class="field-label wide">Customer name<input id="customer-name" type="text" required placeholder="Customer name" autocomplete="organization" /></label>
+              <label class="field-label">Customer signer name<input id="customer-signer-name" type="text" autocomplete="name" /></label>
+              <label class="field-label">Customer signer title<input id="customer-signer-title" type="text" autocomplete="organization-title" /></label>
+              <label class="field-label">Jotform signer name<input id="jotform-signer-name" type="text" value="Tolga Sakman" autocomplete="name" /></label>
+              <label class="field-label">Jotform signer title<input id="jotform-signer-title" type="text" value="VP of Enterprise Sales" autocomplete="organization-title" /></label>
+            </div>
+          </section>
+        </form>
+      </aside>
+      <div id="panel-resizer" class="panel-resizer no-print" role="separator" aria-label="Resize product panel" aria-orientation="vertical" aria-valuemin="30" aria-valuemax="70" aria-valuenow="33" tabindex="0" title="Drag to resize. Double-click to restore the default width."></div>
+      <section class="preview-panel">
+        <article id="addendum-document" class="document-page" contenteditable="true" spellcheck="true" aria-label="Editable addendum PDF preview">
+          <header class="document-brand"><img src="assets/jotform-mark-hd.png" alt="" aria-hidden="true" /><span>Jotform</span></header>
+          <h2>ADDENDUM #<span data-output="addendumNumber">1</span> - JOTFORM ENTERPRISE</h2>
+          <p>This addendum (“Addendum <span data-output="addendumNumber">1</span>”) is entered into by and between Jotform and the party identified in the signature block below (“Customer”). The effective date of this Addendum shall be the date of the last signature hereon.</p>
+          <p>This Addendum hereby modifies the <span data-output="agreementType">Order Form</span>, dated <span class="fillable" data-output="agreementDate">[Agreement date]</span> (the “Agreement”) as follows - no changes to the Agreement not explicitly stated herein are being made:</p>
+          <ol id="document-clauses" class="clauses"></ol>
+          <section id="document-cost-section" class="cost-section">
+            <h3><span id="cost-section-title">Renewal Costs</span> <span>(all amounts in <span data-output="currencyLabel">USD$</span>):</span></h3>
+            <dl id="document-cost-list" class="cost-list"></dl>
+            <dl class="cost-list total-cost-line"><div><dt id="document-total-label">Total Cost:</dt><dd data-output="totalUsed">$0.00</dd></div></dl>
+          </section>
+          <p id="overage-paragraph" hidden>Customer agrees that, if during the Term, Customer exceeds its number of Permitted Users, Jotform shall invoice Customer for the additional users, and Customer agrees to pay the invoice, without the need for an addendum for the same.</p>
+          <section class="signature-section">
+            <h3 class="accepted-heading">ACCEPTED AND AGREED:</h3>
+            <table class="signature-table">
+              <thead><tr><th>Customer: <span data-output="customerName">Customer</span></th><th data-output="jotformEntity">Jotform Inc.</th></tr></thead>
+              <tbody>
+                <tr class="signature-row"><td><span>Signature</span></td><td><span>Signature</span></td></tr>
+                <tr><td><span class="signature-label">Date</span></td><td><span class="signature-label">Date</span></td></tr>
+                <tr><td><span class="signature-label">Name</span><strong data-output="customerSignerName"></strong></td><td><span class="signature-label">Name</span><strong data-output="jotformSignerName">Tolga Sakman</strong></td></tr>
+                <tr><td><span class="signature-label">Title</span><strong data-output="customerSignerTitle"></strong></td><td><span class="signature-label">Title</span><strong data-output="jotformSignerTitle">VP of Enterprise Sales</strong></td></tr>
+              </tbody>
+            </table>
+          </section>
+        </article>
+      </section>
+
+      <div id="feedback-modal" class="feedback-modal-backdrop no-print" hidden>
+        <section class="feedback-modal" role="dialog" aria-modal="true" aria-label="Addendum Generator feedback">
+          <button id="feedback-close" class="feedback-modal-close" type="button" aria-label="Close feedback form">×</button>
+          <div class="feedback-modal-body">
+            <iframe
+              id="JotFormIFrame-262383929833974"
+              class="feedback-modal-frame"
+              title="Addendum Generator Feedback Form"
+              onload="window.parent.scrollTo(0,0)"
+              allowtransparency="true"
+              allow="geolocation; microphone; camera; fullscreen; payment"
+              data-src="https://form.jotform.com/262383929833974"
+              frameborder="0"
+              scrolling="no"
+            ></iframe>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <template id="cost-line-template">
+      <div class="cost-line">
+        <div class="cost-line-top"><label class="field-label product-field"><span class="visually-hidden">Catalog product</span><select class="line-product"></select></label><button class="remove-cost-line" type="button" aria-label="Remove pricing line" title="Remove pricing line">×</button></div>
+        <details class="product-details" open><summary>Details</summary><div class="product-detail-fields">
+        <label class="waived-control line-added-control"><input class="line-renewal-mode" type="checkbox" /> <span>Added with this addendum</span></label>
+        <label class="field-label">Addendum line label<input class="line-label" type="text" placeholder="Product or credit description" /></label>
+        <div class="cost-line-grid quantities-grid">
+          <label class="field-label line-current-quantity-field"><span>Current quantity</span><input class="line-current-quantity" type="number" min="0" step="1" value="0" inputmode="numeric" /></label>
+          <label class="field-label"><span class="line-added-quantity-label">Renewal quantity</span><input class="line-new-quantity" type="number" min="1" step="1" value="1" inputmode="numeric" /></label>
+          <label class="field-label">Pricing basis<select class="line-basis"><option value="annual">Annual — renewal term</option><option value="monthly">Monthly — renewal term</option><option value="back-charge">Back Charge</option><option value="one-time">One-time</option></select></label>
+          <label class="field-label line-back-charge-term-field" hidden>Term (months)<input class="line-back-charge-months" type="number" min="0" step="1" inputmode="numeric" disabled /></label>
+          <label class="field-label">Cost treatment<select class="line-effect"><option value="charge">Charge</option><option value="reduction">Reduction</option><option value="credit">Service credit</option></select></label>
+          <label class="field-label">Unit price<span class="money-input"><span>$</span><input class="line-unit-price" type="number" min="0" step="0.01" value="0" inputmode="decimal" /></span></label>
+          <label class="waived-control"><input class="line-waived" type="checkbox" /> <span>Waived</span></label>
+        </div>
+        <label class="field-label line-credit-description-field" hidden>Service credit description<input class="line-credit-description" type="text" placeholder="Required — describe what this credit is for" /></label>
+        <p class="line-validation validation-message" role="alert" hidden></p>
+        <div class="line-summary"><span class="line-formula"></span><strong class="line-total">$0.00</strong></div>
+        </div></details>
+      </div>
+    </template>
+    <template id="discount-line-template">
+      <div class="discount-line">
+        <label class="field-label">Discount<select class="discount-type"><option value="education">Education / Non-profit Discount</option><option value="multiyear">Multi-Year Discount</option><option value="reseller">Reseller Discount</option><option value="custom">Customized Discount</option></select></label>
+        <label class="field-label">Rate %<select class="discount-rate-option"><option value="" disabled>Select rate</option><option value="30">30%</option><option value="15">15%</option><option value="10">10%</option><option value="custom">Custom</option></select></label>
+        <label class="field-label discount-custom-name-field" hidden>Discount name<input class="discount-custom-name" type="text" placeholder="Required" /></label>
+        <label class="field-label discount-custom-rate-field" hidden>Custom rate %<input class="discount-custom-rate" type="number" min="0" max="100" step="0.01" inputmode="decimal" placeholder="Required" /></label>
+        <button class="remove-line-discount" type="button" aria-label="Remove discount" title="Remove discount">×</button>
+      </div>
+    </template>
+    <script src="pricing-data.js?v=20261007-jefs"></script>
+    <script src="app.js?v=20261007-jefs"></script>
+  </body>
+</html>
