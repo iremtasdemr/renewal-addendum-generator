@@ -117,7 +117,7 @@ module.exports = async function handler(req, res) {
     return res.end("Not found.");
   }
   try {
-    const content = await fs.readFile(path.join(process.cwd(), "site", asset[0]));
+    const content = await fs.readFile(path.join(__dirname, "..", "site", asset[0]));
     res.setHeader("Content-Type", asset[1]);
     return res.end(req.method === "HEAD" ? undefined : content);
   } catch {
