@@ -642,6 +642,9 @@ function clauseFor(item, agreementType) {
   if (productName === "Jotform Government Base Package (includes 5 users)") {
     return "Addition of (1) Jotform Government Instance (includes 5 Permitted Users).";
   }
+  if (productName === "Jotform Enterprise Light Package (includes 3 users)") {
+    return "Addition of (1) Jotform Light Instance (includes 3 Permitted Users).";
+  }
   if (productName === "Server Migration Fee (Non-HIPAA to H)") {
     return "Jotform will migrate up to five (5) forms from the Customer’s non-HIPAA instance to the HIPAA instance.";
   }
