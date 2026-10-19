@@ -369,11 +369,9 @@ function discountRowsFor(row) {
   });
 }
 
-function suggestedRenewalRate() {
-  const hasEducationDiscount = [...discountList.querySelectorAll(".discount-line")].some((discountRow) => (
-    discountRow.querySelector(".discount-type").value === "education"
-  ));
-  return hasEducationDiscount ? "15" : "30";
+function renewalBundleRate(discounts) {
+  const hasEducationDiscount = discounts.some(discount => discount.type === "education" && discount.rate > 0);
+  return hasEducationDiscount ? 15 : 30;
 }
 
 function addDiscountLine(values = {}) {
@@ -560,7 +558,7 @@ function getCostLines() {
       return { row: discountRow, type, name: name || "Customized Discount", rate: Math.min(100, Math.max(0, rawRate)), amount: 0 };
     }).filter(Boolean);
     if (isFiveUserBundle(selectedProduct?.product)) {
-      discounts.push({ row: null, type: "renewal", name: discountNames.renewal, rate: Number(suggestedRenewalRate()), amount: 0, automatic: true });
+      discounts.push({ row: null, type: "renewal", name: discountNames.renewal, rate: renewalBundleRate(discounts), amount: 0, automatic: true });
     }
     const basis = row.querySelector(".line-basis").value;
     const backChargeTermInput = row.querySelector(".line-back-charge-months");
@@ -617,6 +615,16 @@ function countWord(value) {
   return words[value] || String(value);
 }
 
+function renewalBundleClause(bundleLines, currentUsers, renewedUsers) {
+  const quantity = bundleLines.reduce((count, item) => count + item.changeQuantity, 0);
+  const rate = bundleLines[0].discounts.find(discount => discount.type === "renewal").rate;
+  const bundleLabel = quantity === 1 ? "renewal bundle" : "renewal bundles";
+  const userChange = currentUsers === renewedUsers
+    ? `remains at ${currentUsers}, including`
+    : `is adjusted from ${currentUsers} to ${renewedUsers}, to include`;
+  return `Number of Permitted Users ${userChange} ${countWord(quantity).toLowerCase()} (${quantity}) ${bundleLabel} of 5 Users offered at a ${formatPercent(rate)}% discount, available only at the time of renewal.`;
+}
+
 function clauseFor(item, agreementType) {
   if (item.effect === "credit") return `Customer will receive a service credit for ${item.creditDescription || plainFeatureName(item)}.`;
   if (item.effect === "reduction") return `A cost reduction for ${plainFeatureName(item)} will apply to this renewal.`;
@@ -658,11 +666,7 @@ function clauseFor(item, agreementType) {
     return `The number of Data Only Users stated on the ${agreementType} is hereby changed from ${item.currentQuantity} Data Only Users to ${item.newQuantity} Data Only Users.`;
   }
   if (isFiveUserBundle(productName)) {
-    const renewalDiscount = item.discounts.find((discount) => discount.type === "renewal");
-    if (renewalDiscount) {
-      const bundleLabel = item.changeQuantity === 1 ? "renewal Bundle" : "renewal Bundles";
-      return `Number of Permitted Users is adjusted from ${item.currentQuantity} to ${item.newQuantity} to include ${countWord(item.changeQuantity)} ${bundleLabel} of 5 Users, at the additional discount of ${formatPercent(renewalDiscount.rate)}% available only to these additional user bundles, and only at time of renewal.`;
-    }
+    return renewalBundleClause([item], item.currentQuantity, item.newQuantity);
   }
   if (item.selectedProduct?.category === "One-Time Fees") {
     return `A ${plainFeatureName(item)} will apply to the changes described in this Addendum.`;
@@ -777,7 +781,7 @@ function renderDocumentCosts(lines, months) {
       ? "Waived"
       : isFiveUserBundleLine
         ? bundlePriceDisplay(
-          educationDiscount ? item.unitPrice * 0.7 : item.unitPrice,
+          educationDiscount ? item.unitPrice * (1 - educationDiscount.rate / 100) : item.unitPrice,
           educationDiscount ? displayedUnitPrice * (1 - educationDiscount.rate / 100) : displayedUnitPrice,
           suffix,
           item.effect !== "charge",
@@ -890,8 +894,11 @@ function renderDocument(lines, months, totalUsed) {
   const isPermittedUser = item => isSinglePermittedUser(item.selectedProduct?.product) || isFiveUserBundle(item.selectedProduct?.product);
   const currentUsers = wholeNumberValue(fields.previousUsers);
   const renewedUsers = wholeNumberValue(fields.renewedUsers);
-  if (currentUsers !== renewedUsers) {
-    clauses.push(`The number of Permitted Users stated on the ${fields.agreementType.value} is hereby changed from ${currentUsers} Permitted Users to ${renewedUsers} Permitted Users.`);
+  const addedBundles = addedLines.filter(item => isFiveUserBundle(item.selectedProduct?.product) && item.effect === "charge" && item.changeQuantity > 0);
+  if (currentUsers !== renewedUsers || addedBundles.length) {
+    clauses.push(addedBundles.length
+      ? renewalBundleClause(addedBundles, currentUsers, renewedUsers)
+      : `The number of Permitted Users stated on the ${fields.agreementType.value} is hereby changed from ${currentUsers} Permitted Users to ${renewedUsers} Permitted Users.`);
   }
   addedLines.filter(item => !isPermittedUser(item) || item.effect === "credit").forEach(item => {
     clauses.push(clauseFor(item, fields.agreementType.value));
