@@ -763,7 +763,7 @@ function renderDocumentCosts(lines, months) {
   list.replaceChildren();
   let hasRecurring = false;
   const trailingDiscounts = new Map();
-  const orderedLines = orderedPdfLines(lines).filter(item => !item.inactive);
+  const orderedLines = orderedPdfLines(lines);
   const regularLines = orderedLines.filter((item) => item.basis !== "back-charge");
   const backChargeLines = orderedLines.filter((item) => item.basis === "back-charge");
   regularLines.forEach((item) => {
