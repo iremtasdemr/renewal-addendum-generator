@@ -286,7 +286,7 @@ function isSinglePermittedUser(productName) {
 
 function isInactiveUserRow(row) {
   const quantity = row.querySelector(".line-new-quantity");
-  return isSinglePermittedUser(row.querySelector(".line-product").value)
+  return usesCurrentQuantity(row.querySelector(".line-product").value)
     && quantity.validity.valid && wholeNumberValue(quantity) === 0;
 }
 
@@ -300,7 +300,7 @@ function usesCurrentQuantity(productName) {
 
 function syncQuantityFields(row) {
   const productName = row.querySelector(".line-product").value;
-  row.querySelector(".line-new-quantity").min = isSinglePermittedUser(productName) ? "0" : "1";
+  row.querySelector(".line-new-quantity").min = usesCurrentQuantity(productName) ? "0" : "1";
   const tracksCurrentQuantity = usesCurrentQuantity(productName);
   const added = row.querySelector(".line-renewal-mode").checked;
   row.querySelector(".line-current-quantity-field").hidden = !(added && isDataOnlyUserBundle(productName));
@@ -482,6 +482,9 @@ function addCostLine(values = {}, position = "bottom") {
     if (item) {
       row.querySelector(".line-label").value = item.pdfLabel || item.product;
       row.querySelector(".line-basis").value = item.defaultBasis || (item.annual === false ? "one-time" : "annual");
+      if (isFiveUserBundle(item.product) || isDataOnlyUserBundle(item.product)) {
+        row.querySelector(".line-new-quantity").value = 1;
+      }
       updateLinkedUnitPrice(row);
       if (defaultsCurrentQuantityToFive(item.product) && wholeNumberValue(row.querySelector(".line-current-quantity")) === 0) {
         row.querySelector(".line-current-quantity").value = 5;
@@ -764,9 +767,22 @@ function renderDocumentCosts(lines, months) {
   let hasRecurring = false;
   const trailingDiscounts = new Map();
   const orderedLines = orderedPdfLines(lines);
-  const regularLines = orderedLines.filter((item) => item.basis !== "back-charge");
-  const backChargeLines = orderedLines.filter((item) => item.basis === "back-charge");
-  regularLines.forEach((item) => {
+  const hasEducationDiscount = (item) => !item.waived && item.discounts.some(discount => discount.type === "education");
+  const educationLines = orderedLines.filter(hasEducationDiscount);
+  const otherLines = orderedLines.filter(item => !hasEducationDiscount(item));
+  const educationDiscounts = new Map();
+  educationLines.forEach(item => item.discounts.forEach(discount => {
+    if (discount.type === "education") educationDiscounts.set(discount.row, discount);
+  }));
+  const collectTrailingDiscounts = (item) => {
+    if (item.waived) return;
+    item.discounts.forEach(discount => {
+      if (discount.type !== "education" && !(isFiveUserBundle(item.selectedProduct?.product) && discount.type === "renewal")) {
+        trailingDiscounts.set(discount.row, discount);
+      }
+    });
+  };
+  const renderRegularLine = (item) => {
     const group = document.createElement("div");
     group.className = "cost-item-group";
     list.append(group);
@@ -785,13 +801,14 @@ function renderDocumentCosts(lines, months) {
     const displayedUnitPrice = isFiveUserBundleLine
       ? item.discounts.filter((discount) => discount.type === "renewal").reduce((price, discount) => price * (1 - discount.rate / 100), item.unitPrice)
       : item.unitPrice;
-    const educationDiscount = item.discounts.find((discount) => discount.type === "education");
+    const applyEducationDiscounts = price => item.discounts.filter(discount => discount.type === "education")
+      .reduce((amount, discount) => amount - amount * discount.rate / 100, price);
     const value = item.waived
       ? "Waived"
       : isFiveUserBundleLine
         ? bundlePriceDisplay(
-          educationDiscount ? item.unitPrice * (1 - educationDiscount.rate / 100) : item.unitPrice,
-          educationDiscount ? displayedUnitPrice * (1 - educationDiscount.rate / 100) : displayedUnitPrice,
+          applyEducationDiscounts(item.unitPrice),
+          applyEducationDiscounts(displayedUnitPrice),
           suffix,
           item.effect !== "charge",
         )
@@ -801,28 +818,18 @@ function renderDocumentCosts(lines, months) {
       : isPermittedUserLine
         ? `Cost of ${baseLabel}`
         : isBase ? "Cost of Base Package" : `Cost of ${baseLabel}`;
-    appendDocumentCost(costLabel, value, item.effect !== "charge" ? "credit-row" : "", group);
-    if (!item.waived) {
-      [...item.discounts].sort((a, b) => Number(b.type === "education") - Number(a.type === "education")).forEach((discount) => {
-        if (discount.type === "education") {
-          if (!isFiveUserBundleLine) {
-            appendDocumentCost(discount.name, `${formatPercent(discount.rate)}%`, "discount-row", group);
-          }
-        } else if (!(isFiveUserBundleLine && discount.type === "renewal")) {
-          trailingDiscounts.set(discount.row, discount);
-        }
-      });
-    }
+    const displayedCostLabel = isFiveUserBundleLine && hasEducationDiscount(item)
+      ? `${costLabel} (EDU/NP included)` : costLabel;
+    appendDocumentCost(displayedCostLabel, value, item.effect !== "charge" ? "credit-row" : "", group);
+    collectTrailingDiscounts(item);
     if (item.basis === "annual") hasRecurring = true;
-  });
-  if (hasRecurring) appendDocumentCost("Term", `${months} months`);
-  if (backChargeLines.length && regularLines.length) {
-    appendDocumentCost(`Back Charge Costs (all amounts in ${fields.currency.value})`, "", "back-charge-heading");
-  }
-  backChargeLines.forEach((item) => {
+    return group;
+  };
+  const renderBackChargeLine = (item) => {
     const group = document.createElement("div");
     group.className = "cost-item-group back-charge-item";
     list.append(group);
+    appendDocumentCost(`Back Charge — ${plainFeatureName(item)}`, "", "back-charge-heading", group);
     const productName = item.selectedProduct?.product || "";
     const unitMultiplier = isFiveUserBundle(productName) ? 5 : isDataOnlyUserBundle(productName) ? 10 : 1;
     const totalUnitMonths = item.changeQuantity * unitMultiplier * item.termMonths;
@@ -831,19 +838,24 @@ function renderDocumentCosts(lines, months) {
     const unitPrice = item.effect !== "charge" ? `-${formatMoney(item.unitPrice)}/year` : `${formatMoney(item.unitPrice)}/year`;
     appendDocumentCost(isUserCharge ? "Cost Per User" : "Cost Per Unit", item.waived ? "Waived" : unitPrice, item.effect !== "charge" ? "credit-row" : "", group);
     const totalValue = item.waived ? "Waived" : item.total < 0 ? `-${formatMoney(Math.abs(item.total))}` : formatMoney(item.total);
-    appendDocumentCost("Cost", totalValue, item.effect !== "charge" ? "credit-row" : "", group);
-    if (!item.waived) {
-      item.discounts.forEach((discount) => {
-        if (discount.type === "education") {
-          if (!isFiveUserBundle(productName)) {
-            appendDocumentCost(discount.name, `${formatPercent(discount.rate)}%`, "discount-row", group);
-          }
-        } else if (!(isFiveUserBundle(productName) && discount.type === "renewal")) {
-          trailingDiscounts.set(discount.row, discount);
-        }
-      });
-    }
-  });
+    const costLabel = !item.waived && item.discounts.length ? "Cost (discounts included)" : "Cost";
+    appendDocumentCost(costLabel, totalValue, item.effect !== "charge" ? "credit-row" : "", group);
+    collectTrailingDiscounts(item);
+    return group;
+  };
+  const renderLines = (items) => {
+    let lastGroup;
+    items.filter(item => item.basis !== "back-charge").forEach(item => { lastGroup = renderRegularLine(item); });
+    items.filter(item => item.basis === "back-charge").forEach(item => { lastGroup = renderBackChargeLine(item); });
+    return lastGroup;
+  };
+  const lastEducationGroup = renderLines(educationLines);
+  if (lastEducationGroup) {
+    const rates = [...educationDiscounts.values()].map(discount => `${formatPercent(discount.rate)}%`).join(", then ");
+    appendDocumentCost(discountNames.education, rates, "discount-row", lastEducationGroup);
+  }
+  renderLines(otherLines);
+  if (hasRecurring) appendDocumentCost("Term", `${months} months`);
   trailingDiscounts.forEach((discount) => {
     appendDocumentCost(discount.type === "multiyear" ? "Multiyear Upfront Payment Discount" : discount.name, `${formatPercent(discount.rate)}%`, "discount-row");
   });
@@ -965,8 +977,8 @@ function calculate() {
     item.row.classList.toggle("is-waived", item.waived);
     const error = item.row.querySelector(".line-validation");
     if (item.missingFeature) error.textContent = "Select a catalog feature or enter a custom line label.";
-    else if (item.invalidQuantityControl) error.textContent = isSinglePermittedUser(item.selectedProduct?.product)
-      ? "Enter a user quantity in whole numbers (0 or more)." : "Renewal quantity must be at least 1.";
+    else if (item.invalidQuantityControl) error.textContent = usesCurrentQuantity(item.selectedProduct?.product)
+      ? "Enter a user or bundle quantity in whole numbers (0 or more)." : "Renewal quantity must be at least 1.";
     else if (item.invalidTermControl) error.textContent = "Enter a back charge term in whole months (0 or more).";
     else if (item.invalidCreditControl) error.textContent = "Enter a description for this credit.";
     else if (!item.inactive && item.invalidDiscountControl?.matches(".discount-type")) error.textContent = "Education / Non-profit Discount is not available for this product.";
