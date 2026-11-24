@@ -36,9 +36,8 @@ window.QUOTE_PRICING = {
     {
       product: "JEFS User",
       category: "Add-Ons",
-      annual: false,
-      defaultBasis: "monthly",
-      prices: { USD: 99 },
+      annual: true,
+      prices: { USD: 1188 },
     },
     {
       product: "Additional User",

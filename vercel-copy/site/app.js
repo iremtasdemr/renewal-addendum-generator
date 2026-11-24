@@ -256,9 +256,7 @@ function linkedCatalogPrice(row) {
   if (!item) return 0;
   const catalogPrice = item.prices[fields.currency.value];
   if (catalogPrice === undefined) return 0;
-  const basis = row.querySelector(".line-basis").value;
-  if (item.defaultBasis === "monthly" && (basis === "annual" || basis === "back-charge")) return catalogPrice * 12;
-  return basis === "monthly" && item.annual !== false ? catalogPrice / 12 : catalogPrice;
+  return catalogPrice;
 }
 
 function updateLinkedUnitPrice(row) {
@@ -271,7 +269,7 @@ function syncCreditDescription(row) {
   const field = row.querySelector(".line-credit-description-field");
   const input = row.querySelector(".line-credit-description");
   field.hidden = !isCredit;
-  input.required = isCredit;
+  input.required = isCredit && !isInactiveUserRow(row);
 }
 
 function isFiveUserBundle(productName) {
@@ -286,6 +284,12 @@ function isSinglePermittedUser(productName) {
   return productName === "Additional User" || productName === "JEFS User";
 }
 
+function isInactiveUserRow(row) {
+  const quantity = row.querySelector(".line-new-quantity");
+  return isSinglePermittedUser(row.querySelector(".line-product").value)
+    && quantity.validity.valid && wholeNumberValue(quantity) === 0;
+}
+
 function defaultsCurrentQuantityToFive(productName) {
   return isSinglePermittedUser(productName) || isFiveUserBundle(productName);
 }
@@ -296,6 +300,7 @@ function usesCurrentQuantity(productName) {
 
 function syncQuantityFields(row) {
   const productName = row.querySelector(".line-product").value;
+  row.querySelector(".line-new-quantity").min = isSinglePermittedUser(productName) ? "0" : "1";
   const tracksCurrentQuantity = usesCurrentQuantity(productName);
   const added = row.querySelector(".line-renewal-mode").checked;
   row.querySelector(".line-current-quantity-field").hidden = !(added && isDataOnlyUserBundle(productName));
@@ -433,8 +438,8 @@ function syncBackChargeTerm(row) {
   const isBackCharge = row.querySelector(".line-basis").value === "back-charge";
   const termInput = row.querySelector(".line-back-charge-months");
   row.querySelector(".line-back-charge-term-field").hidden = !isBackCharge;
-  termInput.disabled = !isBackCharge;
-  termInput.required = isBackCharge;
+  termInput.disabled = !isBackCharge || isInactiveUserRow(row);
+  termInput.required = isBackCharge && !isInactiveUserRow(row);
   if (isBackCharge && termInput.dataset.initialized !== "true") {
     termInput.value = wholeNumberValue(fields.monthsRemaining);
     termInput.dataset.initialized = "true";
@@ -530,7 +535,10 @@ function getCostLines() {
     const label = row.querySelector(".line-label").value.trim() || selectedProduct?.product || "[Select feature]";
     const tracksCurrentQuantity = usesCurrentQuantity(selectedProduct?.product);
     const currentQuantity = tracksCurrentQuantity ? wholeNumberValue(row.querySelector(".line-current-quantity")) : 0;
-    const changeQuantity = wholeNumberValue(row.querySelector(".line-new-quantity"));
+    const quantityInput = row.querySelector(".line-new-quantity");
+    const changeQuantity = wholeNumberValue(quantityInput);
+    const inactive = isInactiveUserRow(row);
+    const invalidQuantityControl = !quantityInput.validity.valid || (changeQuantity === 0 && !inactive) ? quantityInput : null;
     const addedPermittedUsers = isFiveUserBundle(selectedProduct?.product)
       ? changeQuantity * 5
       : isDataOnlyUserBundle(selectedProduct?.product)
@@ -563,24 +571,23 @@ function getCostLines() {
     const basis = row.querySelector(".line-basis").value;
     const backChargeTermInput = row.querySelector(".line-back-charge-months");
     const termMonths = basis === "back-charge" ? wholeNumberValue(backChargeTermInput) : months;
-    const invalidTermControl = basis === "back-charge" && !waived && (
+    const invalidTermControl = basis === "back-charge" && !waived && !inactive && (
       !backChargeTermInput.value.trim() || !backChargeTermInput.validity.valid
     ) ? backChargeTermInput : null;
     const effect = row.querySelector(".line-effect").value;
     const creditDescriptionInput = row.querySelector(".line-credit-description");
     const creditDescription = creditDescriptionInput.value.trim();
-    const invalidCreditControl = effect === "credit" && !waived && !creditDescription ? creditDescriptionInput : null;
+    const invalidCreditControl = effect === "credit" && !waived && !inactive && !creditDescription ? creditDescriptionInput : null;
     const missingFeature = label === "[Select feature]";
     let grossTotal = waived ? 0 : changeQuantity * unitPrice;
     if (basis === "annual" || basis === "back-charge") grossTotal *= termMonths / 12;
-    if (basis === "monthly") grossTotal *= months;
     let total = grossTotal;
     discounts.forEach((discount) => {
       discount.amount = total * (discount.rate / 100);
       total -= discount.amount;
     });
     if (effect !== "charge") total *= -1;
-    return { renewalMode: row.querySelector(".line-renewal-mode").checked ? "added" : "renew", row, selectedProduct, label, currentQuantity, newQuantity, changeQuantity, unitPrice, discounts, basis, termMonths, effect, grossTotal, total, waived, missingFeature, invalidTermControl, invalidDiscountControl, creditDescription, invalidCreditControl };
+    return { renewalMode: row.querySelector(".line-renewal-mode").checked ? "added" : "renew", row, selectedProduct, label, currentQuantity, newQuantity, changeQuantity, unitPrice, discounts, basis, termMonths, effect, grossTotal, total, waived, inactive, missingFeature, invalidQuantityControl, invalidTermControl, invalidDiscountControl, creditDescription, invalidCreditControl };
   });
 }
 
@@ -592,7 +599,6 @@ function formulaFor(item, months) {
   const signText = item.effect === "credit" ? "service credit: " : item.effect === "reduction" ? "reduction: " : "";
   if (item.basis === "annual") return `${signText}${item.changeQuantity} × ${formatMoney(item.unitPrice)}/year × ${months}/12${discountText}`;
   if (item.basis === "back-charge") return `${signText}back charge: ${item.changeQuantity} × ${formatMoney(item.unitPrice)}/year × ${item.termMonths}/12${discountText}`;
-  if (item.basis === "monthly") return `${signText}${item.changeQuantity} × ${formatMoney(item.unitPrice)}/month × ${months} months${discountText}`;
   if (item.basis === "one-time") return `${signText}${item.changeQuantity} × ${formatMoney(item.unitPrice)} one-time${discountText}`;
   return `${signText}${item.changeQuantity} × ${formatMoney(item.unitPrice)} final amount${discountText}`;
 }
@@ -757,7 +763,7 @@ function renderDocumentCosts(lines, months) {
   list.replaceChildren();
   let hasRecurring = false;
   const trailingDiscounts = new Map();
-  const orderedLines = orderedPdfLines(lines);
+  const orderedLines = orderedPdfLines(lines).filter(item => !item.inactive);
   const regularLines = orderedLines.filter((item) => item.basis !== "back-charge");
   const backChargeLines = orderedLines.filter((item) => item.basis === "back-charge");
   regularLines.forEach((item) => {
@@ -775,7 +781,7 @@ function renderDocumentCosts(lines, months) {
         ? "Number of Additional Permitted Users, if any"
         : productLabel;
     appendDocumentCost(quantityLabel, String(item.changeQuantity), "", group);
-    const suffix = item.basis === "annual" ? "/year" : item.basis === "monthly" ? "/month" : "";
+    const suffix = item.basis === "annual" ? "/year" : "";
     const displayedUnitPrice = isFiveUserBundleLine
       ? item.discounts.filter((discount) => discount.type === "renewal").reduce((price, discount) => price * (1 - discount.rate / 100), item.unitPrice)
       : item.unitPrice;
@@ -807,7 +813,7 @@ function renderDocumentCosts(lines, months) {
         }
       });
     }
-    if (item.basis === "annual" || item.basis === "monthly") hasRecurring = true;
+    if (item.basis === "annual") hasRecurring = true;
   });
   if (hasRecurring) appendDocumentCost("Term", `${months} months`);
   if (backChargeLines.length && regularLines.length) {
@@ -862,7 +868,14 @@ function syncUserCardsFromCounts() {
     const otherDelta = permittedUserDelta(lines.filter(item => item !== existing));
     const difference = wholeNumberValue(fields.renewedUsers) - wholeNumberValue(fields.previousUsers) - otherDelta;
     if (!difference) {
-      if (existing?.renewalMode === "added") existing.row.remove();
+      if (existing?.renewalMode === "added") {
+        existing.row.querySelector(".line-new-quantity").value = 0;
+        existing.row.querySelector(".line-effect").value = "charge";
+        existing.row.querySelector(".line-renewal-mode").checked = false;
+        existing.row.dataset.effectManual = "false";
+        syncCreditDescription(existing.row);
+        syncBackChargeTerm(existing.row);
+      }
     } else {
       const row = existing?.row || addCostLine({product: lines.some(item => item.selectedProduct?.product === "JEFS Base Package") ? "JEFS User" : "Additional User", newQuantity: Math.abs(difference), effect: difference < 0 ? "reduction" : "charge", renewalMode: "added"});
       row.querySelector(".line-new-quantity").value = Math.abs(difference);
@@ -893,7 +906,7 @@ function renderDocument(lines, months, totalUsed) {
   const clauses = [
     `Customer hereby agrees to extend the “Term” of the Agreement to ${fields.renewalEndDate.value ? formatDate(fields.renewalEndDate.value) : "[Renewal end date]"}.`
   ];
-  const addedLines = orderedPdfLines(lines).filter(item => item.renewalMode === "added" && !item.missingFeature);
+  const addedLines = orderedPdfLines(lines).filter(item => item.renewalMode === "added" && !item.missingFeature && !item.inactive);
   const isPermittedUser = item => isSinglePermittedUser(item.selectedProduct?.product) || isFiveUserBundle(item.selectedProduct?.product);
   const currentUsers = wholeNumberValue(fields.previousUsers);
   const renewedUsers = wholeNumberValue(fields.renewedUsers);
@@ -919,6 +932,11 @@ function addDefaultBase() {
   return addCostLine({product: products.find(p => p.category === "Base Packages").product, newQuantity: 1});
 }
 
+function addDefaultProducts() {
+  addDefaultBase();
+  addCostLine({product: "Additional User", newQuantity: 0, basis: "annual"});
+}
+
 function calculate() {
   syncSuggestedMultiYearRates();
   const months = wholeNumberValue(fields.monthsRemaining);
@@ -931,11 +949,13 @@ function calculate() {
     row.querySelector(".line-added-control").hidden = isPrimaryBase;
     checkbox.disabled = isPrimaryBase;
     if (isPrimaryBase) checkbox.checked = false;
+    syncQuantityFields(row);
+    syncCreditDescription(row);
+    syncBackChargeTerm(row);
     const priceInput = row.querySelector(".line-unit-price");
     const product = productByName(row.querySelector(".line-product").value);
-    priceInput.setCustomValidity(row.dataset.catalogLinked === "true" && product && product.prices[fields.currency.value] === undefined
+    priceInput.setCustomValidity(!isInactiveUserRow(row) && row.dataset.catalogLinked === "true" && product && product.prices[fields.currency.value] === undefined
       ? "Enter a unit price for this currency; the JEFS catalog price is available in USD only." : "");
-    syncQuantityFields(row);
   });
   const lines = getCostLines();
   lines.forEach((item) => {
@@ -945,12 +965,13 @@ function calculate() {
     item.row.classList.toggle("is-waived", item.waived);
     const error = item.row.querySelector(".line-validation");
     if (item.missingFeature) error.textContent = "Select a catalog feature or enter a custom line label.";
-    else if (item.changeQuantity === 0) error.textContent = "Renewal quantity must be at least 1.";
+    else if (item.invalidQuantityControl) error.textContent = isSinglePermittedUser(item.selectedProduct?.product)
+      ? "Enter a user quantity in whole numbers (0 or more)." : "Renewal quantity must be at least 1.";
     else if (item.invalidTermControl) error.textContent = "Enter a back charge term in whole months (0 or more).";
     else if (item.invalidCreditControl) error.textContent = "Enter a description for this credit.";
-    else if (item.invalidDiscountControl?.matches(".discount-type")) error.textContent = "Education / Non-profit Discount is not available for this product.";
-    else if (item.invalidDiscountControl?.matches(".discount-rate-option")) error.textContent = "Select a discount rate.";
-    else if (item.invalidDiscountControl) error.textContent = "Customized discounts require a name and rate.";
+    else if (!item.inactive && item.invalidDiscountControl?.matches(".discount-type")) error.textContent = "Education / Non-profit Discount is not available for this product.";
+    else if (!item.inactive && item.invalidDiscountControl?.matches(".discount-rate-option")) error.textContent = "Select a discount rate.";
+    else if (!item.inactive && item.invalidDiscountControl) error.textContent = "Customized discounts require a name and rate.";
     else error.textContent = "";
     error.hidden = !error.textContent;
   });
@@ -1254,7 +1275,7 @@ document.querySelector("#reset-form").addEventListener("click", () => {
   documentCustomized = false;
   resetDocumentButton.hidden = true;
   documentPage.innerHTML = automaticDocumentTemplate;
-  addDefaultBase();
+  addDefaultProducts();
   syncCurrency();
   setDocumentEditing(true);
 });
@@ -1262,12 +1283,12 @@ document.querySelector("#download-pdf").addEventListener("click", () => {
   if (!form.reportValidity()) return;
   // Validate pricing without replacing manual preview edits.
   const lines = getCostLines();
-  const invalid = lines.find((item) => item.missingFeature || item.changeQuantity === 0 || item.invalidTermControl || item.invalidCreditControl || item.invalidDiscountControl);
+  const invalid = lines.find((item) => item.missingFeature || item.invalidQuantityControl || (!item.inactive && (item.invalidTermControl || item.invalidCreditControl || item.invalidDiscountControl)));
   if (invalid) {
     const target = invalid.missingFeature
       ? invalid.row.querySelector(".line-product")
-      : invalid.changeQuantity === 0
-        ? invalid.row.querySelector(".line-new-quantity")
+      : invalid.invalidQuantityControl
+        ? invalid.invalidQuantityControl
         : invalid.invalidTermControl || invalid.invalidCreditControl || invalid.invalidDiscountControl;
     invalid.row.querySelector(".product-details").open = true;
     target.focus();
@@ -1284,7 +1305,7 @@ document.querySelector("#download-pdf").addEventListener("click", () => {
   window.setTimeout(restoreTitle, 60000);
 });
 
-addDefaultBase();
+addDefaultProducts();
 syncCurrency();
 setDocumentEditing(true);
 
