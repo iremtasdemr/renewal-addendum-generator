@@ -193,6 +193,142 @@ const fields = {
   jotformSignerTitle: document.querySelector("#jotform-signer-title"),
 };
 
+// Each tab owns its draft so two agreements can be edited independently.
+const draftKey = "renewal-addendum-draft-v1";
+let draftReady = false;
+let restoringRows = false;
+let draftTimer = null;
+const formFields = Object.entries(fields).filter(([, element]) => element.matches("input,select"));
+
+function draftRow(row) {
+  const controls = {};
+  for (const control of row.querySelectorAll("input,select")) {
+    controls[control.classList[0]] = control.type === "checkbox" ? control.checked : control.value;
+  }
+  return {
+    controls, id: row.dataset.lineId || row.dataset.discountId,
+    linked: row.dataset.catalogLinked, manualEffect: row.dataset.effectManual,
+    manualRate: row.dataset.rateManual, open: row.querySelector("details")?.open,
+    termInitialized: row.querySelector(".line-back-charge-months")?.dataset.initialized
+  };
+}
+
+function flushDraft() {
+  if (draftTimer === null) return;
+  clearTimeout(draftTimer);
+  draftTimer = null;
+  try {
+    const draft = {
+      fields: Object.fromEntries(formFields.map(([name, input]) => [name, input.value])),
+      products: Array.from(costLineList.children, draftRow),
+      discounts: Array.from(discountList.children, draftRow),
+      overage: includeOverageClause, override: totalIsOverridden, total: totalUsedInput.value,
+      pdf: documentCustomized ? documentPage.innerHTML : null
+    };
+    sessionStorage.setItem(draftKey, JSON.stringify(draft));
+  } catch {
+    previewState.textContent = "Draft could not be saved in this tab";
+  }
+}
+
+function queueDraft() {
+  if (!draftReady) return;
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(flushDraft, 150);
+}
+
+function clearDraft() {
+  clearTimeout(draftTimer);
+  draftTimer = null;
+  try { sessionStorage.removeItem(draftKey); } catch {}
+}
+
+function restoreRowControls(row, saved) {
+  for (const control of row.querySelectorAll("input,select")) {
+    const value = saved.controls[control.classList[0]];
+    if (control.type === "checkbox") control.checked = value === true;
+    else if (typeof value === "string") control.value = value;
+  }
+}
+
+// Restore printable content and editor markers, stripping active pasted markup.
+function restorePdf(html) {
+  const fragment = document.createElement("template");
+  fragment.innerHTML = html;
+  const ids = new Set(Array.from(documentPage.querySelectorAll("[id]"), el => el.id));
+  const tags = new Set("header section p h1 h2 h3 h4 div span ol ul li dl dt dd table thead tbody tfoot tr td th b strong i em u s strike sub sup br img blockquote font hr a".split(" "));
+  const styles = ["font-weight","font-style","text-decoration-line","text-align","color","background-color","font-size","font-family","white-space"];
+  for (const el of [...fragment.content.querySelectorAll("*")]) {
+    if (el.namespaceURI !== "http://www.w3.org/1999/xhtml" || ["script","style","iframe","object","template"].includes(el.localName)) { el.remove(); continue; }
+    if (!tags.has(el.localName)) { el.replaceWith(...el.childNodes); continue; }
+    const safeStyle = styles.map(name => [name, el.style.getPropertyValue(name)]).filter(([,v]) => v);
+    for (const {name,value} of [...el.attributes]) {
+      if (["class","hidden","data-output","data-pdf-key","colspan","rowspan"].includes(name)) continue;
+      if (name === "id" && ids.has(value)) continue;
+      if (el.localName === "img" && name === "src" && value === "assets/jotform-mark-hd.png") continue;
+      el.removeAttribute(name);
+    }
+    for (const [name,value] of safeStyle) el.style.setProperty(name,value);
+  }
+  const baselines = ["#document-clauses","#document-cost-list"].map(selector =>
+    [selector, generatedLists.get(documentPage.querySelector(selector))]);
+  const outputs = new Map(Array.from(documentPage.querySelectorAll("[data-output]"),
+    el => [el.dataset.output, generatedValues.get(el)]));
+  documentPage.replaceChildren(fragment.content);
+  flattenPaginatedDocument();
+  for (const [selector, baseline] of baselines) {
+    const node = documentPage.querySelector(selector);
+    if (node && baseline) generatedLists.set(node, baseline);
+  }
+  for (const el of documentPage.querySelectorAll("[data-output]")) generatedValues.set(el, outputs.get(el.dataset.output));
+  markDocumentCustomized();
+  schedulePagination();
+}
+
+function restoreDraft() {
+  let saved;
+  try { saved = JSON.parse(sessionStorage.getItem(draftKey)); } catch { return false; }
+  if (!saved || !Array.isArray(saved.products) || !Array.isArray(saved.discounts) || !saved.fields) return false;
+  if (![...saved.products,...saved.discounts].every(row => row && row.controls && /^\d+$/.test(row.id))) return false;
+  restoringRows = true;
+  try {
+    for (const [name, input] of formFields) {
+      const value = saved.fields[name];
+      if (typeof value !== "string") continue;
+      if (input.matches("select") && !Array.from(input.options).some(option => option.value === value)) continue;
+      input.value = value;
+    }
+    for (const item of saved.products) {
+      const row = addCostLine();
+      restoreRowControls(row,item);
+      row.dataset.lineId = item.id;
+      nextCostLineId = Math.max(nextCostLineId, Number(item.id) + 1);
+      row.dataset.catalogLinked = item.linked;
+      row.dataset.effectManual = item.manualEffect;
+      row.querySelector("details").open = item.open !== false;
+      row.querySelector(".line-back-charge-months").dataset.initialized = item.termInitialized || "false";
+    }
+    for (const item of saved.discounts) {
+      const row = addDiscountLine();
+      restoreRowControls(row,item);
+      row.dataset.discountId = item.id;
+      nextDiscountId = Math.max(nextDiscountId, Number(item.id) + 1);
+      row.dataset.rateManual = item.manualRate;
+      syncDiscountInputs(row);
+    }
+  } finally { restoringRows = false; }
+  includeOverageClause = saved.overage === true;
+  toggleOverageClauseButton.setAttribute("aria-pressed", String(includeOverageClause));
+  toggleOverageClauseButton.textContent = includeOverageClause ? "Remove Auto-Expansion Clause" : "Include Auto-Expansion Clause";
+  totalIsOverridden = saved.override === true;
+  totalUsedInput.value = saved.total;
+  updateCurrencySymbols();
+  syncingUserCounts = true;
+  try { calculate(); } finally { syncingUserCounts = false; }
+  if (typeof saved.pdf === "string") restorePdf(saved.pdf);
+  return true;
+}
+
 function productByName(name) {
   return products.find((item) => item.product === name);
 }
@@ -457,6 +593,7 @@ function syncBackChargeTerm(row) {
 
 function addCostLine(values = {}, position = "bottom") {
   const row = costLineTemplate.content.firstElementChild.cloneNode(true);
+  row.querySelector(".money-input > span").textContent = currencySymbols[fields.currency.value];
   row.dataset.lineId = String(nextCostLineId++);
   row.addEventListener("invalid", () => { row.querySelector(".product-details").open = true; }, true);
   const productSelect = row.querySelector(".line-product");
@@ -1009,6 +1146,7 @@ function addDefaultProducts() {
 }
 
 function calculate() {
+  if (restoringRows) return;
   syncSuggestedMultiYearRates();
   const months = wholeNumberValue(fields.monthsRemaining);
   let firstBaseFound = false;
@@ -1057,15 +1195,19 @@ function calculate() {
     : "Updates automatically until a salesperson changes it.";
 
   renderDocument(lines, months, totalUsed);
+  queueDraft();
   return lines;
 }
 
+function updateCurrencySymbols() {
+  document.querySelectorAll(".money-input > span:first-child").forEach((element) => { element.textContent = currencySymbols[fields.currency.value]; });
+}
+
 function syncCurrency() {
-  const currency = fields.currency.value;
   costLineList.querySelectorAll(".cost-line").forEach((row) => {
     updateLinkedUnitPrice(row);
   });
-  document.querySelectorAll(".money-input > span:first-child").forEach((element) => { element.textContent = currencySymbols[currency]; });
+  updateCurrencySymbols();
   totalIsOverridden = false;
   calculate();
 }
@@ -1094,6 +1236,7 @@ documentPage.addEventListener("compositionend", () => {
 });
 documentPage.addEventListener("input", event => {
   markDocumentCustomized();
+  queueDraft();
   if (!event.isComposing && !documentComposing) schedulePagination();
 });
 
@@ -1332,6 +1475,8 @@ document.querySelector("#add-discount-line").addEventListener("click", () => {
 });
 document.querySelector("#reset-form").addEventListener("click", () => {
   if (documentCustomized && !window.confirm("Reset the form and discard all manual PDF text edits?")) return;
+  clearDraft();
+  draftReady = false;
   form.reset();
   syncingUserCounts = false;
   datePickers.forEach(picker => picker.close());
@@ -1348,6 +1493,7 @@ document.querySelector("#reset-form").addEventListener("click", () => {
   addDefaultProducts();
   syncCurrency();
   setDocumentEditing(true);
+  draftReady = true;
 });
 document.querySelector("#download-pdf").addEventListener("click", () => {
   if (!form.reportValidity()) return;
@@ -1375,8 +1521,15 @@ document.querySelector("#download-pdf").addEventListener("click", () => {
   window.setTimeout(restoreTitle, 60000);
 });
 
-addDefaultProducts();
-syncCurrency();
+if (!restoreDraft()) {
+  addDefaultProducts();
+  syncCurrency();
+}
+draftReady = true;
+form.addEventListener("input", queueDraft);
+costLineList.addEventListener("click", event => { if (event.target.closest("summary")) queueDraft(); });
+window.addEventListener("pagehide", flushDraft);
+document.addEventListener("visibilitychange", () => { if (document.hidden) flushDraft(); });
 setDocumentEditing(true);
 
 // Fit the A4 preview to the panel without changing the printed page dimensions.
