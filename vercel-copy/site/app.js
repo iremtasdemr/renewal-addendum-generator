@@ -782,9 +782,14 @@ function renewalBundleClause(bundleLines, currentUsers, renewedUsers) {
 
 function clauseFor(item, agreementType) {
   if (item.effect === "credit") return `Customer will receive a service credit for ${item.creditDescription || plainFeatureName(item)}.`;
+  const productName = item.selectedProduct?.product || "";
+  if (productName === "HIPAA / SOC2 Compliance") {
+    return item.effect === "reduction"
+      ? "Conversion from HIPAA-compliant Server to Non-HIPAA Server."
+      : "Conversion from Non-HIPAA Server to HIPAA-compliant Server.";
+  }
   if (item.effect === "reduction") return `A cost reduction for ${plainFeatureName(item)} will apply to this renewal.`;
   const action = "added to";
-  const productName = item.selectedProduct?.product || "";
   if (productName === "Adding a New HIPAA Server") {
     return "Addition of (1) Jotform Enterprise HIPAA-Enabled Instance (includes 5 Permitted Users).";
   }
