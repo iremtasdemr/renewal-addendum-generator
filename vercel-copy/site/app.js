@@ -11,6 +11,9 @@ let totalIsOverridden = false;
 let syncingUserCounts = false;
 let documentCustomized = false;
 let nextCostLineId = 1;
+let nextDiscountId = 1;
+const generatedValues = new WeakMap();
+const generatedLists = new WeakMap();
 const documentPage = document.querySelector("#addendum-document");
 const resetDocumentButton = document.querySelector("#reset-document");
 const previewState = document.querySelector("#preview-state");
@@ -230,7 +233,12 @@ function formatDate(value) {
 }
 
 function setOutput(name, value) {
-  document.querySelectorAll(`[data-output="${name}"]`).forEach((element) => { element.textContent = value; });
+  document.querySelectorAll(`[data-output="${name}"]`).forEach((element) => {
+    if (generatedValues.get(element) !== value) {
+      element.textContent = value;
+      generatedValues.set(element, value);
+    }
+  });
 }
 
 function buildProductOptions(select) {
@@ -381,6 +389,7 @@ function renewalBundleRate(discounts) {
 
 function addDiscountLine(values = {}) {
   const discountRow = discountLineTemplate.content.firstElementChild.cloneNode(true);
+  discountRow.dataset.discountId = String(nextDiscountId++);
   const typeSelect = discountRow.querySelector(".discount-type");
   const rateSelect = discountRow.querySelector(".discount-rate-option");
   const customName = discountRow.querySelector(".discount-custom-name");
@@ -690,13 +699,52 @@ function clauseFor(item, agreementType) {
   return `${describedFeature} will be ${action} Customer's Jotform Enterprise subscription.`;
 }
 
-function appendDocumentCost(label, value, className = "", container = null) {
-  const list = container || document.querySelector("#document-cost-list");
+// Compare successive generated versions so unchanged fields keep the user's live DOM edits.
+function syncGeneratedChildren(container, next, previous = generatedLists.get(container)) {
+  const keyed = parent => new Map(Array.from(parent?.children || [])
+    .filter(node => node.dataset.pdfKey)
+    .map(node => [node.dataset.pdfKey, node]));
+  const before = keyed(previous);
+  const live = keyed(container);
+  const after = keyed(next);
+  for (const [key, node] of live) {
+    if (before.has(key) && !after.has(key)) node.remove();
+  }
+  let anchor = null;
+  for (const [key, fresh] of [...after].reverse()) {
+    const old = before.get(key);
+    let node = live.get(key);
+    if (!node) {
+      if (old && old.isEqualNode(fresh)) continue; // Preserve a manual deletion.
+      node = fresh.cloneNode(true);
+      container.insertBefore(node, anchor);
+    } else {
+      if (!old || !old.isEqualNode(fresh)) {
+        node.className = fresh.className;
+        if (fresh.firstElementChild?.dataset.pdfKey) {
+          syncGeneratedChildren(node, fresh, old);
+        } else {
+          node.replaceChildren(...fresh.cloneNode(true).childNodes);
+        }
+      }
+      if (anchor && !(node.compareDocumentPosition(anchor) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+        container.insertBefore(node, anchor);
+      }
+    }
+    anchor = node;
+  }
+  generatedLists.set(container, next);
+}
+
+function appendDocumentCost(label, value, className, list, key) {
   if (!list) return;
   const wrapper = document.createElement("div");
+  wrapper.dataset.pdfKey = key;
   if (className) wrapper.className = className;
   const term = document.createElement("dt");
   const detail = document.createElement("dd");
+  term.dataset.pdfKey = "label";
+  detail.dataset.pdfKey = "value";
   term.textContent = `${label}:`;
   if (value instanceof Node) detail.append(value);
   else detail.textContent = value;
@@ -761,9 +809,9 @@ function renewalUserCount(lines) {
 }
 
 function renderDocumentCosts(lines, months) {
-  const list = document.querySelector("#document-cost-list");
-  if (!list) return;
-  list.replaceChildren();
+  const liveList = document.querySelector("#document-cost-list");
+  if (!liveList) return;
+  const list = document.createElement("dl");
   let hasRecurring = false;
   const trailingDiscounts = new Map();
   const orderedLines = orderedPdfLines(lines);
@@ -785,6 +833,7 @@ function renderDocumentCosts(lines, months) {
   const renderRegularLine = (item) => {
     const group = document.createElement("div");
     group.className = "cost-item-group";
+    group.dataset.pdfKey = "product-" + item.row.dataset.lineId;
     list.append(group);
     const baseLabel = item.effect === "credit" ? `Service credit — ${item.creditDescription || plainFeatureName(item)}` : item.effect === "reduction" ? `Reduction — ${plainFeatureName(item)}` : plainFeatureName(item);
     const isPermittedUserLine = usesCurrentQuantity(item.selectedProduct?.product);
@@ -796,7 +845,7 @@ function renderDocumentCosts(lines, months) {
       : isSinglePermittedUser(item.selectedProduct?.product)
         ? "Number of Additional Permitted Users, if any"
         : productLabel;
-    appendDocumentCost(quantityLabel, String(item.changeQuantity), "", group);
+    appendDocumentCost(quantityLabel, String(item.changeQuantity), "", group, "quantity");
     const suffix = item.basis === "annual" ? "/year" : "";
     const displayedUnitPrice = isFiveUserBundleLine
       ? item.discounts.filter((discount) => discount.type === "renewal").reduce((price, discount) => price * (1 - discount.rate / 100), item.unitPrice)
@@ -820,7 +869,7 @@ function renderDocumentCosts(lines, months) {
         : isBase ? "Cost of Base Package" : `Cost of ${baseLabel}`;
     const displayedCostLabel = isFiveUserBundleLine && hasEducationDiscount(item)
       ? `${costLabel} (EDU/NP included)` : costLabel;
-    appendDocumentCost(displayedCostLabel, value, item.effect !== "charge" ? "credit-row" : "", group);
+    appendDocumentCost(displayedCostLabel, value, item.effect !== "charge" ? "credit-row" : "", group, "price");
     collectTrailingDiscounts(item);
     if (item.basis === "annual") hasRecurring = true;
     return group;
@@ -828,18 +877,19 @@ function renderDocumentCosts(lines, months) {
   const renderBackChargeLine = (item) => {
     const group = document.createElement("div");
     group.className = "cost-item-group back-charge-item";
+    group.dataset.pdfKey = "product-" + item.row.dataset.lineId;
     list.append(group);
-    appendDocumentCost(`Back Charge — ${plainFeatureName(item)}`, "", "back-charge-heading", group);
+    appendDocumentCost(`Back Charge — ${plainFeatureName(item)}`, "", "back-charge-heading", group, "back-charge");
     const productName = item.selectedProduct?.product || "";
     const unitMultiplier = isFiveUserBundle(productName) ? 5 : isDataOnlyUserBundle(productName) ? 10 : 1;
     const totalUnitMonths = item.changeQuantity * unitMultiplier * item.termMonths;
     const isUserCharge = usesCurrentQuantity(productName);
-    appendDocumentCost(isUserCharge ? "Number of Total User Months" : "Number of Total Unit Months", String(totalUnitMonths), "", group);
+    appendDocumentCost(isUserCharge ? "Number of Total User Months" : "Number of Total Unit Months", String(totalUnitMonths), "", group, "months");
     const unitPrice = item.effect !== "charge" ? `-${formatMoney(item.unitPrice)}/year` : `${formatMoney(item.unitPrice)}/year`;
-    appendDocumentCost(isUserCharge ? "Cost Per User" : "Cost Per Unit", item.waived ? "Waived" : unitPrice, item.effect !== "charge" ? "credit-row" : "", group);
+    appendDocumentCost(isUserCharge ? "Cost Per User" : "Cost Per Unit", item.waived ? "Waived" : unitPrice, item.effect !== "charge" ? "credit-row" : "", group, "unit");
     const totalValue = item.waived ? "Waived" : item.total < 0 ? `-${formatMoney(Math.abs(item.total))}` : formatMoney(item.total);
     const costLabel = !item.waived && item.discounts.length ? "Cost (discounts included)" : "Cost";
-    appendDocumentCost(costLabel, totalValue, item.effect !== "charge" ? "credit-row" : "", group);
+    appendDocumentCost(costLabel, totalValue, item.effect !== "charge" ? "credit-row" : "", group, "net");
     collectTrailingDiscounts(item);
     return group;
   };
@@ -852,14 +902,15 @@ function renderDocumentCosts(lines, months) {
   const lastEducationGroup = renderLines(educationLines);
   if (lastEducationGroup) {
     const rates = [...educationDiscounts.values()].map(discount => `${formatPercent(discount.rate)}%`).join(", then ");
-    appendDocumentCost(discountNames.education, rates, "discount-row", lastEducationGroup);
+    appendDocumentCost(discountNames.education, rates, "discount-row", lastEducationGroup, "education");
   }
   renderLines(otherLines);
-  if (hasRecurring) appendDocumentCost("Term", `${months} months`);
+  if (hasRecurring) appendDocumentCost("Term", `${months} months`, "", list, "term");
   trailingDiscounts.forEach((discount) => {
-    appendDocumentCost(discount.type === "multiyear" ? "Multiyear Upfront Payment Discount" : discount.name, `${formatPercent(discount.rate)}%`, "discount-row");
+    appendDocumentCost(discount.type === "multiyear" ? "Multiyear Upfront Payment Discount" : discount.name, `${formatPercent(discount.rate)}%`, "discount-row", list, "discount-" + discount.row.dataset.discountId);
   });
-  if (![...trailingDiscounts.values()].some(discount => discount.type === "multiyear")) appendDocumentCost("Multiyear Upfront Payment Discount", "N/A");
+  if (![...trailingDiscounts.values()].some(discount => discount.type === "multiyear")) appendDocumentCost("Multiyear Upfront Payment Discount", "N/A", "", list, "multiyear-na");
+  syncGeneratedChildren(liveList, list);
 }
 
 function permittedUserDelta(lines) {
@@ -907,7 +958,6 @@ function renderDocument(lines, months, totalUsed) {
     const baseline = wholeNumberValue(fields.previousUsers);
     fields.renewedUsers.value = Math.max(0, baseline + permittedUserDelta(lines));
   }
-  if (documentCustomized) return;
   flattenPaginatedDocument();
   for (const name of ["addendumNumber", "agreementType", "customerName", "jotformEntity", "customerSignerName", "customerSignerTitle", "jotformSignerName", "jotformSignerTitle"]) {
     setOutput(name, fields[name].value.trim() || (name === "customerName" ? "Customer" : name === "addendumNumber" ? "_" : ""));
@@ -915,27 +965,36 @@ function renderDocument(lines, months, totalUsed) {
   setOutput("agreementDate", formatDate(fields.agreementDate.value));
   setOutput("currencyLabel", `${fields.currency.value}${currencySymbols[fields.currency.value]}`);
   setOutput("totalUsed", formatMoney(totalUsed));
-  const clauses = [
+  const clauses = [["term",
     `Customer hereby agrees to extend the “Term” of the Agreement to ${fields.renewalEndDate.value ? formatDate(fields.renewalEndDate.value) : "[Renewal end date]"}.`
-  ];
+  ]];
   const addedLines = orderedPdfLines(lines).filter(item => item.renewalMode === "added" && !item.missingFeature && !item.inactive);
   const isPermittedUser = item => isSinglePermittedUser(item.selectedProduct?.product) || isFiveUserBundle(item.selectedProduct?.product);
   const currentUsers = wholeNumberValue(fields.previousUsers);
   const renewedUsers = wholeNumberValue(fields.renewedUsers);
   const addedBundles = addedLines.filter(item => isFiveUserBundle(item.selectedProduct?.product) && item.effect === "charge" && item.changeQuantity > 0);
   if (currentUsers !== renewedUsers || addedBundles.length) {
-    clauses.push(addedBundles.length
+    clauses.push(["permitted-users", addedBundles.length
       ? renewalBundleClause(addedBundles, currentUsers, renewedUsers)
-      : `The number of Permitted Users stated on the ${fields.agreementType.value} is hereby changed from ${currentUsers} Permitted Users to ${renewedUsers} Permitted Users.`);
+      : `The number of Permitted Users stated on the ${fields.agreementType.value} is hereby changed from ${currentUsers} Permitted Users to ${renewedUsers} Permitted Users.`]);
   }
   addedLines.filter(item => !isPermittedUser(item) || item.effect === "credit").forEach(item => {
-    clauses.push(clauseFor(item, fields.agreementType.value));
+    clauses.push(["product-" + item.row.dataset.lineId, clauseFor(item, fields.agreementType.value)]);
   });
-  clauses.push("The following renewal costs shall apply to the above-described changes:");
-  document.querySelector("#document-clauses").replaceChildren(...clauses.map(text => {
-    const li = document.createElement("li"); li.textContent = text; return li;
-  }));
-  document.querySelector("#overage-paragraph").hidden = !includeOverageClause;
+  clauses.push(["cost-intro", "The following renewal costs shall apply to the above-described changes:"]);
+  const liveClauses = documentPage.querySelector("#document-clauses");
+  if (liveClauses) {
+    const next = document.createElement("ol");
+    for (const [key, text] of clauses) {
+      const li = document.createElement("li");
+      li.dataset.pdfKey = key;
+      li.textContent = text;
+      next.append(li);
+    }
+    syncGeneratedChildren(liveClauses, next);
+  }
+  const overage = documentPage.querySelector("#overage-paragraph");
+  if (overage) overage.hidden = !includeOverageClause;
   renderDocumentCosts(lines, months);
   schedulePagination();
 }
@@ -1072,7 +1131,6 @@ feedbackModal.addEventListener("mousedown", (event) => {
 });
 toggleOverageClauseButton.addEventListener("click", () => {
   includeOverageClause = !includeOverageClause;
-  documentPage.querySelector("#overage-paragraph").hidden = !includeOverageClause;
   if (documentCustomized) schedulePagination();
   toggleOverageClauseButton.setAttribute("aria-pressed", String(includeOverageClause));
   toggleOverageClauseButton.textContent = includeOverageClause
